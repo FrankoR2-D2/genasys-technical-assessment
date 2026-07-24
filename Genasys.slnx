@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Genasys.Api/Genasys.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Genasys.Api.Tests/Genasys.Api.Tests.csproj" />
+  </Folder>
+</Solution>
