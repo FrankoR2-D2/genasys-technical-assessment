@@ -5,7 +5,7 @@ assessment. ASP.NET Core Web API (.NET 8) with EF Core InMemory, JWT auth,
 FluentValidation, and typed `HttpClient` + Polly for inter-service calls.
 
 Full design plan — data model, order-creation flow, sequence diagrams, error
-handling, architecture decisions, round-1 completion status — lives at
+handling, architecture decisions, completion status — lives at
 [`docs/plan/order-processing-service-plan.md`](docs/plan/order-processing-service-plan.md)
 ([PDF version](docs/plan/order-processing-service-plan.pdf)). Deeper
 documentation — architecture & patterns, UML/sequence/flowchart diagrams,
@@ -97,6 +97,6 @@ Payment), this also builds out Product and Customer as full CRUD resources,
 an `AuthController` for the JWT bonus, list/search/pagination on every
 collection endpoint, and the production-shaped touches documented in the
 plan (audit trail, reservation ledger, soft delete, idempotency, optimistic
-concurrency). Multi-tenancy and a Postgres/Keycloak identity layer were an
-earlier direction for this repo and are explicitly parked — see §11 of the
-plan doc.
+concurrency). An earlier Postgres/Keycloak/multi-tenant identity layer was
+explored for this repo and removed in favor of the spec-first design — see
+§10 of the plan doc.

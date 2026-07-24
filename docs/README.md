@@ -5,7 +5,7 @@ focused, single-purpose docs rather than one long file.
 
 | Doc | Covers |
 |---|---|
-| [plan/order-processing-service-plan.md](plan/order-processing-service-plan.md) | The original design plan — data model/ERD, API surface, order-creation flow, error scenarios, round-1 decisions and completion status. Written before/during the build; kept as the historical record of *what was decided and why*. |
+| [plan/order-processing-service-plan.md](plan/order-processing-service-plan.md) | The original design plan — data model/ERD, API surface, order-creation flow, error scenarios, key decisions and completion status. Written before/during the build; kept as the historical record of *what was decided and why*. |
 | [architecture.md](architecture.md) | Project structure, composition root, layered request flow, and a decisions table (plain services vs. CQRS, no generic repository, domain exceptions vs. `Result<T>`, etc.) |
 | [diagrams/class-diagram.md](diagrams/class-diagram.md) | UML class diagrams — the persisted domain model, and the service/controller/client layer |
 | [diagrams/sequence-diagrams.md](diagrams/sequence-diagrams.md) | Runtime sequence diagrams — auth, order creation (happy path, declined, service unavailable), idempotent replay |
