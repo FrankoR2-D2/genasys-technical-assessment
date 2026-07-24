@@ -3,6 +3,7 @@ using Genasys.Api.Contracts.Common;
 using Genasys.Api.Contracts.Customers;
 using Genasys.Api.Data;
 using Genasys.Api.Entities;
+using Genasys.Api.Services.Contracts;
 using Microsoft.EntityFrameworkCore;
 
 namespace Genasys.Api.Services;

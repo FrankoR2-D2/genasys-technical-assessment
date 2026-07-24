@@ -1,3 +1,5 @@
+using Genasys.Api.Entities.Contracts;
+
 namespace Genasys.Api.Entities;
 
 public class InventoryItem : IHasRowVersion

@@ -1,7 +1,7 @@
 using Genasys.Api.Contracts.Common;
 using Genasys.Api.Contracts.Inventory;
 
-namespace Genasys.Api.Services;
+namespace Genasys.Api.Services.Contracts;
 
 public interface IInventoryService
 {

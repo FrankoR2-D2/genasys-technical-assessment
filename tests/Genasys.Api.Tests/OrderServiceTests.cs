@@ -5,6 +5,7 @@ using Genasys.Api.Contracts.Orders;
 using Genasys.Api.Data;
 using Genasys.Api.Entities;
 using Genasys.Api.Services;
+using Genasys.Api.Services.Contracts;
 using Genasys.Api.Tests.Fakes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;

@@ -2,7 +2,7 @@ using Genasys.Api.Clients;
 using Genasys.Api.Common;
 using Genasys.Api.Contracts.Inventory;
 using Genasys.Api.Contracts.Payments;
-using Genasys.Api.Services;
+using Genasys.Api.Services.Contracts;
 
 namespace Genasys.Api.Tests.Fakes;
 

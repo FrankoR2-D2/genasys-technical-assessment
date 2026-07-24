@@ -1,4 +1,5 @@
 using Genasys.Api.Entities;
+using Genasys.Api.Entities.Contracts;
 using Microsoft.EntityFrameworkCore;
 
 namespace Genasys.Api.Data;

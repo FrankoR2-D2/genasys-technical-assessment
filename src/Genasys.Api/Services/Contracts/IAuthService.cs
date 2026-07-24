@@ -1,6 +1,6 @@
 using Genasys.Api.Contracts.Auth;
 
-namespace Genasys.Api.Services;
+namespace Genasys.Api.Services.Contracts;
 
 public interface IAuthService
 {

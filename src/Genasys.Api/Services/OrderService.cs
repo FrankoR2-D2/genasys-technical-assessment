@@ -6,6 +6,7 @@ using Genasys.Api.Contracts.Orders;
 using Genasys.Api.Contracts.Payments;
 using Genasys.Api.Data;
 using Genasys.Api.Entities;
+using Genasys.Api.Services.Contracts;
 using Microsoft.EntityFrameworkCore;
 
 namespace Genasys.Api.Services;

@@ -447,15 +447,29 @@ the extra project-reference ceremony.
 
 ```
 Genasys.Api/
-  Controllers/   thin — map request -> service call -> map result -> status code
-  Services/      business logic: OrderService, InventoryService, PaymentService,
-                 ProductService, CustomerService, AuthService (interface + impl each)
-  Data/          AppDbContext + IEntityTypeConfiguration<T> per entity
-  Entities/      POCOs + enums
-  Contracts/     request/response DTOs, PagedResult<T>
-  Validators/    FluentValidation validators
-  Filters/       ValidationFilter, exception handler
+  Configuration/          WebApplicationBuilder/WebApplication extension methods (Program.cs composition root)
+  Controllers/            thin — map request -> service call -> map result -> status code
+  Services/
+    Contracts/            IOrderService, IInventoryService, IPaymentService, IProductService, ICustomerService, IAuthService
+    *.cs                  implementations: OrderService, InventoryService, PaymentService, ProductService, CustomerService, AuthService
+  Clients/                IInventoryApiClient/IPaymentApiClient + implementations (typed HttpClient wrappers)
+  Data/
+    Configurations/       IEntityTypeConfiguration<T> per entity
+    Seed/                 DataSeeder
+    AppDbContext.cs
+  Entities/
+    Contracts/            IHasRowVersion
+    *.cs                  POCOs + enums
+  Contracts/               request/response DTOs, PagedResult<T> (per-resource subfolders: Orders/, Inventory/, Payments/, Products/, Customers/, Auth/, Common/)
+  Validators/              FluentValidation validators
+  Filters/                 ValidationFilter
+  Common/                  DomainExceptions, GlobalExceptionHandler, KeyedLockProvider, AddressMapper, SortSpec, JwtOptions, AuthHeaderPropagationHandler
 ```
+
+Interfaces are split into a `Contracts/` subfolder (and sub-namespace) from
+their implementations in both `Services/` and `Entities/` — a consumer
+importing `Genasys.Api.Services.Contracts` sees only the seam it depends on,
+not the concrete class alongside it.
 
 | Decision | Choice | Why |
 |---|---|---|

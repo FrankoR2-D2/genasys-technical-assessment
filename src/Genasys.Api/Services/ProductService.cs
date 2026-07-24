@@ -3,6 +3,7 @@ using Genasys.Api.Contracts.Common;
 using Genasys.Api.Contracts.Products;
 using Genasys.Api.Data;
 using Genasys.Api.Entities;
+using Genasys.Api.Services.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 

@@ -4,6 +4,7 @@ using System.Text;
 using Genasys.Api.Common;
 using Genasys.Api.Contracts.Auth;
 using Genasys.Api.Data;
+using Genasys.Api.Services.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;

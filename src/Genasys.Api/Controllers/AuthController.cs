@@ -1,5 +1,5 @@
 using Genasys.Api.Contracts.Auth;
-using Genasys.Api.Services;
+using Genasys.Api.Services.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
