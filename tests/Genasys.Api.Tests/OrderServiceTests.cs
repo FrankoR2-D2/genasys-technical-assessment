@@ -22,14 +22,15 @@ public class OrderServiceTests : IDisposable
     public OrderServiceTests()
     {
         _db = TestDbContextFactory.Create();
+        var lockProvider = new KeyedLockProvider();
 
-        var inventoryService = new InventoryService(_db, new KeyedLockProvider(), NullLogger<InventoryService>.Instance);
-        var paymentService = new PaymentService(_db, NullLogger<PaymentService>.Instance);
+        var inventoryService = new InventoryService(_db, lockProvider, NullLogger<InventoryService>.Instance);
+        var paymentService = new PaymentService(_db, lockProvider, NullLogger<PaymentService>.Instance);
 
         IInventoryApiClient inventoryClient = new InProcessInventoryApiClient(inventoryService);
         IPaymentApiClient paymentClient = new InProcessPaymentApiClient(paymentService);
 
-        _orderService = new OrderService(_db, inventoryClient, paymentClient, inventoryService, NullLogger<OrderService>.Instance);
+        _orderService = new OrderService(_db, inventoryClient, paymentClient, inventoryService, lockProvider, NullLogger<OrderService>.Instance);
 
         SeedCatalog();
     }
@@ -103,6 +104,7 @@ public class OrderServiceTests : IDisposable
             new InProcessInventoryApiClient(inventoryService),
             new AlwaysThrowsPaymentApiClient(),
             inventoryService,
+            new KeyedLockProvider(),
             NullLogger<OrderService>.Instance);
 
         var request = new CreateOrderRequest { CustomerId = _customerId, Items = [new CreateOrderItemRequest { ProductId = "P1", Quantity = 1 }] };
@@ -116,6 +118,39 @@ public class OrderServiceTests : IDisposable
 
         var inventory = await _db.InventoryItems.SingleAsync(i => i.ProductId == "P1");
         inventory.AvailableQuantity.Should().Be(5);
+    }
+
+    [Fact]
+    public async Task CreateAsync_CancelledDuringPayment_StillReleasesInventoryAndCancelsOrder()
+    {
+        var cts = new CancellationTokenSource();
+        var inventoryService = new InventoryService(_db, new KeyedLockProvider(), NullLogger<InventoryService>.Instance);
+        var orderServiceWithCancellingPayment = new OrderService(
+            _db,
+            new InProcessInventoryApiClient(inventoryService),
+            new CancellingPaymentApiClient(cts),
+            inventoryService,
+            new KeyedLockProvider(),
+            NullLogger<OrderService>.Instance);
+
+        var request = new CreateOrderRequest { CustomerId = _customerId, Items = [new CreateOrderItemRequest { ProductId = "P1", Quantity = 2 }] };
+
+        // The payment call cancels the shared token before throwing —
+        // simulating the caller disconnecting mid-request — so compensation
+        // runs against an already-cancelled inbound token. Before the fix,
+        // ReleaseAllAsync/TransitionAsync used that same token and threw
+        // OperationCanceledException instead of completing, leaving the
+        // order stuck Pending with inventory still reserved.
+        var act = () => orderServiceWithCancellingPayment.CreateAsync(request, null, cts.Token);
+
+        await act.Should().ThrowAsync<UpstreamServiceUnavailableException>();
+
+        var order = await _db.Orders.SingleAsync();
+        order.Status.Should().Be(OrderStatus.Cancelled);
+
+        var inventory = await _db.InventoryItems.SingleAsync(i => i.ProductId == "P1");
+        inventory.AvailableQuantity.Should().Be(5);
+        inventory.ReservedQuantity.Should().Be(0);
     }
 
     [Fact]

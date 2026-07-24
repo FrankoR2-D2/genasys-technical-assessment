@@ -38,3 +38,16 @@ public class AlwaysThrowsPaymentApiClient : IPaymentApiClient
     public Task<PaymentTransactionResponse> ProcessAsync(ProcessPaymentRequest request, string? idempotencyKey, CancellationToken cancellationToken) =>
         throw new UpstreamServiceUnavailableException("Payment service is unreachable.");
 }
+
+// Simulates the caller disconnecting mid-request: cancels the shared token
+// (as ASP.NET Core would via HttpContext.RequestAborted) and throws the way
+// a real cancelled HttpClient call would, so OrderService's compensation
+// path has to run against an already-cancelled inbound token.
+public class CancellingPaymentApiClient(CancellationTokenSource cancellationTokenSource) : IPaymentApiClient
+{
+    public Task<PaymentTransactionResponse> ProcessAsync(ProcessPaymentRequest request, string? idempotencyKey, CancellationToken cancellationToken)
+    {
+        cancellationTokenSource.Cancel();
+        throw new OperationCanceledException(cancellationTokenSource.Token);
+    }
+}

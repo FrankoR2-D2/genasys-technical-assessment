@@ -27,13 +27,20 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
             logger.LogWarning(exception, "Handled exception: {Title}", title);
         }
 
-        httpContext.Response.StatusCode = status;
-        await httpContext.Response.WriteAsJsonAsync(new ProblemDetails
+        var problemDetails = new ProblemDetails
         {
             Status = status,
             Title = title,
             Detail = detail
-        }, cancellationToken);
+        };
+
+        if (httpContext.Items[CorrelationIdMiddleware.HeaderName] is string correlationId)
+        {
+            problemDetails.Extensions["correlationId"] = correlationId;
+        }
+
+        httpContext.Response.StatusCode = status;
+        await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
 
         return true;
     }

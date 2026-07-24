@@ -5,10 +5,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Genasys.Api.Controllers;
 
+/// <summary>Issues JWTs. This is the only endpoint in the API that doesn't require a bearer token.</summary>
 [ApiController]
 [Route("api/auth")]
 public class AuthController(IAuthService authService) : ControllerBase
 {
+    /// <summary>Exchanges a username/password for a signed, short-lived access token.</summary>
     [HttpPost("token")]
     [AllowAnonymous]
     public async Task<ActionResult<TokenResponse>> Token(TokenRequest request, CancellationToken cancellationToken)

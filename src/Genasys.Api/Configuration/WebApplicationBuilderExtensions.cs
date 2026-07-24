@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using FluentValidation;
@@ -10,6 +11,7 @@ using Genasys.Api.Services.Contracts;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Console;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Polly;
@@ -57,6 +59,12 @@ public static class WebApplicationBuilderExtensions
             };
             options.AddSecurityDefinition("Bearer", bearerScheme);
             options.AddSecurityRequirement(new OpenApiSecurityRequirement { { bearerScheme, [] } });
+
+            var xmlPath = Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml");
+            if (File.Exists(xmlPath))
+            {
+                options.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
+            }
         });
 
         return builder;
@@ -82,6 +90,23 @@ public static class WebApplicationBuilderExtensions
     {
         builder.Services.AddProblemDetails();
         builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+
+        return builder;
+    }
+
+    public static WebApplicationBuilder ConfigureHealthChecks(this WebApplicationBuilder builder)
+    {
+        builder.Services.AddHealthChecks();
+
+        return builder;
+    }
+
+    // Scopes (the correlation id from CorrelationIdMiddleware) are opt-in
+    // per formatter — without this, BeginScope still runs but the console
+    // output silently drops the id.
+    public static WebApplicationBuilder ConfigureLogging(this WebApplicationBuilder builder)
+    {
+        builder.Services.Configure<SimpleConsoleFormatterOptions>(options => options.IncludeScopes = true);
 
         return builder;
     }

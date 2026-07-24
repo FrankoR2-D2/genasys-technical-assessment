@@ -558,8 +558,8 @@ endpoint, `ILogger` used consistently, zero build warnings.
 | Caching implementation (in-memory) | ✅ Product catalog reads |
 | Configuration management (appsettings) | ✅ |
 | Environment-specific settings | ✅ minimal — `appsettings.Development.json` exists but isn't differentiated much |
-| Structured logging with correlation IDs | ❌ not implemented |
-| Metrics/monitoring endpoints | ❌ no `/health` endpoint yet |
+| Structured logging with correlation IDs | ✅ `CorrelationIdMiddleware` — accepts/mints `X-Correlation-Id`, logs in scope, propagated to inter-service calls and surfaced in error responses |
+| Metrics/monitoring endpoints | ✅ `/health`, unauthenticated |
 | Security best practices | ✅ hashed passwords, masked payment references, role-gated mutations |
 
 ### Submission checklist
@@ -569,12 +569,32 @@ endpoint, `ILogger` used consistently, zero build warnings.
 | Service starts successfully | ✅ |
 | End-to-end order flow works correctly | ✅ verified live, not just unit-tested |
 | Error scenarios handled gracefully | ✅ |
-| Public GitHub repository | ❌ **repo is currently private — must be flipped before submitting** |
+| Public GitHub repository | ✅ |
 
-### Known gaps / suggested next steps
+### Post-round-1 hardening (2026-07-24)
 
-1. **Make the repo public** — blocking; everything else here is polish.
-2. `/health` endpoint — closes the metrics/monitoring bonus.
-3. Correlation-ID middleware + log scope enrichment — closes the structured-logging bonus.
-4. XML doc comments on controllers/DTOs, surfaced in Swagger via `IncludeXmlComments` — no functional change, makes the UI self-explanatory for a grader.
-5. A CI workflow (`dotnet build` + `dotnet test` on push) — not asked for by the spec, but a cheap, credible signal of engineering maturity.
+Applied after an external review of the round-1 build flagged real gaps —
+see [../resilience-and-consistency.md](../resilience-and-consistency.md)
+and [../testing.md](../testing.md) for the full writeups:
+
+- `/health` endpoint, XML doc comments surfaced in Swagger via
+  `IncludeXmlComments`, and a CI workflow (`dotnet build` + `dotnet test`
+  on push) — the three items previously listed here as "known gaps".
+- `Reserve` endpoint now dedups an existing `Active` reservation for
+  `(productId, orderId)` instead of double-reserving on a Polly retry.
+- Cancellation-safe compensation: `OrderService`'s rollback paths now run
+  on `CancellationToken.None`, closing a real bug where a disconnected
+  client could leave an order stuck `Pending` with inventory still held.
+- Idempotency races on `Order`/`PaymentTransaction` creation are now
+  actually closed via a `KeyedLockProvider` lock scoped to the idempotency
+  key — the unique DB index alone turned out to be silently unenforced by
+  EF Core's InMemory provider (verified directly), so it wasn't providing
+  the protection originally assumed.
+- A related concurrency bug was found and fixed in `InventoryService`:
+  untracked reads (`AsNoTracking`) plus explicit `ReloadAsync()` inside
+  every lock-protected mutation, closing a stale-read gap that could
+  silently defeat the per-product keyed lock under real concurrency.
+- Added tests for all of the above, plus RowVersion optimistic-concurrency
+  conflicts, soft-delete/historical-order snapshot interaction, the
+  Inventory/Payment role-boundary decision, and pagination edge cases —
+  31 tests total, up from 18.

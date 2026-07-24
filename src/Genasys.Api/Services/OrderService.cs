@@ -16,6 +16,7 @@ public class OrderService(
     IInventoryApiClient inventoryClient,
     IPaymentApiClient paymentClient,
     IInventoryService inventoryService,
+    KeyedLockProvider lockProvider,
     ILogger<OrderService> logger) : IOrderService
 {
     public async Task<PagedResult<OrderResponse>> ListAsync(OrderListRequest request, CancellationToken cancellationToken)
@@ -61,6 +62,26 @@ public class OrderService(
     }
 
     public async Task<OrderResponse> CreateAsync(CreateOrderRequest request, string? idempotencyKey, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return await CreateCoreAsync(request, null, cancellationToken);
+        }
+
+        // Serialize duplicate requests carrying the same idempotency key
+        // end to end — through inventory reservation and payment — rather
+        // than letting them race on the check-then-insert below. EF Core's
+        // InMemory provider doesn't enforce the unique index on
+        // IdempotencyKey the way a real database would (verified: it lets
+        // a duplicate key through silently), so the lock is the actual
+        // guarantee here, not a defensive extra. The loser simply waits,
+        // then finds the winner's order via the replay check instead of
+        // doing (and having to unwind) a duplicate reservation and charge.
+        await using var _ = await lockProvider.AcquireAsync($"order-idem:{idempotencyKey}", cancellationToken);
+        return await CreateCoreAsync(request, idempotencyKey, cancellationToken);
+    }
+
+    private async Task<OrderResponse> CreateCoreAsync(CreateOrderRequest request, string? idempotencyKey, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(idempotencyKey))
         {
@@ -165,8 +186,7 @@ public class OrderService(
             CreatedAt = now,
             UpdatedAt = now
         };
-        db.Orders.Add(order);
-        db.OrderStatusHistories.Add(new OrderStatusHistory
+        var pendingHistory = new OrderStatusHistory
         {
             Id = Guid.NewGuid(),
             OrderId = orderId,
@@ -174,8 +194,32 @@ public class OrderService(
             ToStatus = OrderStatus.Pending,
             Reason = "Order created, inventory reserved.",
             ChangedAt = now
-        });
-        await db.SaveChangesAsync(cancellationToken);
+        };
+        db.Orders.Add(order);
+        db.OrderStatusHistories.Add(pendingHistory);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException) when (!string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            // Belt-and-suspenders: the KeyedLockProvider acquire in
+            // CreateAsync is what actually prevents this race under EF
+            // Core's InMemory provider (its unique index isn't enforced).
+            // On a real database the unique constraint would still be the
+            // last line of defense, so this stays as a clean recovery path
+            // rather than an unhandled 500 if it's ever reached.
+            db.Entry(order).State = EntityState.Detached;
+            db.Entry(pendingHistory).State = EntityState.Detached;
+            await ReleaseAllAsync(orderId, items, CancellationToken.None);
+
+            var winningId = await db.Orders
+                .Where(o => o.IdempotencyKey == idempotencyKey)
+                .Select(o => o.Id)
+                .SingleAsync(cancellationToken);
+            return await GetByIdAsync(winningId, cancellationToken);
+        }
 
         PaymentTransactionResponse payment;
         try

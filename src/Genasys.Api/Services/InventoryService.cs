@@ -35,6 +35,7 @@ public class InventoryService(AppDbContext db, KeyedLockProvider lockProvider, I
 
         var totalCount = await query.CountAsync(cancellationToken);
         var items = await query
+            .AsNoTracking()
             .Skip(request.EffectiveSkip)
             .Take(request.EffectiveTake)
             .ToListAsync(cancellationToken);
@@ -44,7 +45,16 @@ public class InventoryService(AppDbContext db, KeyedLockProvider lockProvider, I
 
     public async Task<InventoryItemResponse> GetByProductIdAsync(string productId, CancellationToken cancellationToken)
     {
-        var item = await db.InventoryItems.SingleOrDefaultAsync(i => i.ProductId == productId, cancellationToken)
+        // AsNoTracking is load-bearing, not a performance nicety: this is
+        // called (via OrderService's pre-reservation availability check)
+        // before ReserveAsync acquires its per-product lock. A tracked read
+        // here would attach a stale InventoryItem snapshot to the request's
+        // DbContext; ReserveAsync's later query would then return that same
+        // cached instance via EF's identity map instead of a fresh read —
+        // silently defeating the lock's "read happens inside the critical
+        // section" guarantee and causing spurious RowVersion conflicts
+        // under real concurrency.
+        var item = await db.InventoryItems.AsNoTracking().SingleOrDefaultAsync(i => i.ProductId == productId, cancellationToken)
             ?? throw new NotFoundException($"Inventory for product '{productId}' was not found.");
         return ToResponse(item);
     }
@@ -53,8 +63,27 @@ public class InventoryService(AppDbContext db, KeyedLockProvider lockProvider, I
     {
         await using var _ = await lockProvider.AcquireAsync(productId, cancellationToken);
 
-        var item = await db.InventoryItems.SingleOrDefaultAsync(i => i.ProductId == productId, cancellationToken)
+        var item = await LoadForUpdateAsync(productId, cancellationToken)
             ?? throw new NotFoundException($"Inventory for product '{productId}' was not found.");
+
+        // A Polly-retried reserve call for an order that already holds an
+        // Active reservation on this product must not double-debit — same
+        // lookup-before-act shape ReleaseAsync already uses.
+        var existingReservation = await db.InventoryReservations
+            .Where(r => r.ProductId == productId && r.OrderId == request.OrderId && r.Status == ReservationStatus.Active)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (existingReservation is not null)
+        {
+            if (existingReservation.Quantity != request.Quantity)
+            {
+                throw new ConflictException(
+                    $"An active reservation for order '{request.OrderId}' on product '{productId}' already exists for a different quantity.");
+            }
+
+            logger.LogInformation("Idempotent replay of reservation for order {OrderId} on {ProductId}", request.OrderId, productId);
+            return ToResponse(item);
+        }
 
         if (item.AvailableQuantity < request.Quantity)
         {
@@ -86,7 +115,7 @@ public class InventoryService(AppDbContext db, KeyedLockProvider lockProvider, I
     {
         await using var _ = await lockProvider.AcquireAsync(productId, cancellationToken);
 
-        var item = await db.InventoryItems.SingleOrDefaultAsync(i => i.ProductId == productId, cancellationToken)
+        var item = await LoadForUpdateAsync(productId, cancellationToken)
             ?? throw new NotFoundException($"Inventory for product '{productId}' was not found.");
 
         var reservation = await db.InventoryReservations
@@ -123,7 +152,8 @@ public class InventoryService(AppDbContext db, KeyedLockProvider lockProvider, I
         {
             await using var _ = await lockProvider.AcquireAsync(reservation.ProductId, cancellationToken);
 
-            var item = await db.InventoryItems.SingleAsync(i => i.ProductId == reservation.ProductId, cancellationToken);
+            var item = await LoadForUpdateAsync(reservation.ProductId, cancellationToken)
+                ?? throw new NotFoundException($"Inventory for product '{reservation.ProductId}' was not found.");
 
             // Goods physically leave the warehouse: Available was already
             // debited at reserve time, so only Total and Reserved move now.
@@ -133,6 +163,26 @@ public class InventoryService(AppDbContext db, KeyedLockProvider lockProvider, I
         }
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // FindAsync checks the context's identity map before querying the store,
+    // which is exactly the problem inside a lock-protected critical section:
+    // if this InventoryItem was already tracked from an earlier point in the
+    // same request (or, within one request, from an earlier reserve before a
+    // later consume), FindAsync would silently hand back that stale cached
+    // instance instead of the current row. ReloadAsync forces a real read
+    // from the store into the tracked entry every time, so a mutation here
+    // is always based on the latest committed state, not a stale snapshot
+    // another concurrent request raced past while this lock was held.
+    private async Task<InventoryItem?> LoadForUpdateAsync(string productId, CancellationToken cancellationToken)
+    {
+        var item = await db.InventoryItems.FindAsync([productId], cancellationToken);
+        if (item is not null)
+        {
+            await db.Entry(item).ReloadAsync(cancellationToken);
+        }
+
+        return item;
     }
 
     private static InventoryItemResponse ToResponse(InventoryItem item) =>

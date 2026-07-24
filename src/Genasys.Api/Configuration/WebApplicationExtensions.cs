@@ -1,3 +1,4 @@
+using Genasys.Api.Common;
 using Genasys.Api.Data;
 using Genasys.Api.Data.Seed;
 
@@ -8,6 +9,15 @@ public static class WebApplicationExtensions
     public static WebApplication WithErrorHandling(this WebApplication app)
     {
         app.UseExceptionHandler();
+        return app;
+    }
+
+    // After the exception handler (so a failure in here is still caught)
+    // and before everything else (so the correlation id's logging scope
+    // covers auth/authz and the controller pipeline too).
+    public static WebApplication WithCorrelationId(this WebApplication app)
+    {
+        app.UseMiddleware<CorrelationIdMiddleware>();
         return app;
     }
 
@@ -32,6 +42,15 @@ public static class WebApplicationExtensions
     public static WebApplication WithEndpoints(this WebApplication app)
     {
         app.MapControllers();
+        return app;
+    }
+
+    // Unauthenticated on purpose — a load balancer/orchestrator probing
+    // liveness shouldn't need a bearer token, and this reports process
+    // health only, not domain state.
+    public static WebApplication WithHealthChecks(this WebApplication app)
+    {
+        app.MapHealthChecks("/health").AllowAnonymous();
         return app;
     }
 

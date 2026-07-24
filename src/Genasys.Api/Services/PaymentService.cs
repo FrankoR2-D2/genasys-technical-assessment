@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Genasys.Api.Services;
 
-public class PaymentService(AppDbContext db, ILogger<PaymentService> logger) : IPaymentService
+public class PaymentService(AppDbContext db, KeyedLockProvider lockProvider, ILogger<PaymentService> logger) : IPaymentService
 {
     public async Task<PagedResult<PaymentTransactionResponse>> ListAsync(PaymentListRequest request, CancellationToken cancellationToken)
     {
@@ -50,6 +50,20 @@ public class PaymentService(AppDbContext db, ILogger<PaymentService> logger) : I
 
     public async Task<PaymentTransactionResponse> ProcessAsync(ProcessPaymentRequest request, string? idempotencyKey, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return await ProcessCoreAsync(request, null, cancellationToken);
+        }
+
+        // Same reasoning as OrderService.CreateAsync — serialize duplicate
+        // requests carrying the same key instead of racing on the
+        // check-then-insert below.
+        await using var _ = await lockProvider.AcquireAsync($"payment-idem:{idempotencyKey}", cancellationToken);
+        return await ProcessCoreAsync(request, idempotencyKey, cancellationToken);
+    }
+
+    private async Task<PaymentTransactionResponse> ProcessCoreAsync(ProcessPaymentRequest request, string? idempotencyKey, CancellationToken cancellationToken)
+    {
         if (!string.IsNullOrWhiteSpace(idempotencyKey))
         {
             var existing = await db.PaymentTransactions.SingleOrDefaultAsync(p => p.IdempotencyKey == idempotencyKey, cancellationToken);
@@ -79,7 +93,19 @@ public class PaymentService(AppDbContext db, ILogger<PaymentService> logger) : I
         transaction.ProcessedAt = DateTime.UtcNow;
 
         db.PaymentTransactions.Add(transaction);
-        await db.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException) when (!string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            // Same reasoning as OrderService.CreateAsync's idempotency race
+            // handling — a concurrent request with the same key already won.
+            db.Entry(transaction).State = EntityState.Detached;
+            var winner = await db.PaymentTransactions.SingleAsync(p => p.IdempotencyKey == idempotencyKey, cancellationToken);
+            return ToResponse(winner);
+        }
 
         logger.LogInformation("Payment {TransactionId} for order {OrderId}: {Status}", transaction.TransactionId, request.OrderId, transaction.Status);
         return ToResponse(transaction);

@@ -36,23 +36,37 @@ and replays verbatim on retry:
 on `IdempotencyKey` only speeds up the lookup — it does nothing to stop two
 concurrent requests carrying the same key from both passing the
 "does this exist?" check before either has saved, and both creating a row.
-Under EF Core InMemory (and any real database), that's a genuine race:
-thread A reads "no existing order", thread B reads "no existing order",
-both proceed to create one. The index is now `.IsUnique()` on both `Order`
-and `PaymentTransaction` ([OrderConfiguration.cs:14](../src/Genasys.Api/Data/Configurations/OrderConfiguration.cs),
-[PaymentTransactionConfiguration.cs:13](../src/Genasys.Api/Data/Configurations/PaymentTransactionConfiguration.cs))
-so the loser of that race now gets a `DbUpdateException` from the second
-`SaveChangesAsync` instead of silently succeeding — a real constraint
-violation is a better failure mode than a silent duplicate, even though the
-loser currently surfaces as an unhandled `500` rather than a friendly
-"here's the order the other request created" response. Closing that last
-mile (catching the constraint violation and re-running the replay lookup)
-is a reasonable next step, not yet implemented.
+The natural instinct is to reach for a **unique** index instead, and both
+`Order` and `PaymentTransaction` do have one
+([OrderConfiguration.cs:14](../src/Genasys.Api/Data/Configurations/OrderConfiguration.cs),
+[PaymentTransactionConfiguration.cs:13](../src/Genasys.Api/Data/Configurations/PaymentTransactionConfiguration.cs)) —
+but it turns out **EF Core's InMemory provider doesn't enforce unique
+indexes at all**. This was verified directly: two separate `DbContext`
+instances inserting the same key, even fully sequentially with no race
+involved, both succeed with no exception. So on this provider the unique
+index is a correct piece of schema documentation and *would* work on a
+real database (SQL Server, Postgres, etc.), but it provides zero actual
+protection here.
 
-**What a unique index does *not* protect against:** reusing the same key
-with a *different* payload (different items, different amount). Right now
-that would silently return the *first* request's result, ignoring the
-second payload entirely — there's no check that the replayed request
+The real guarantee comes from **`KeyedLockProvider`** — the same
+per-key async lock already used for inventory concurrency (see
+[Concurrency](#concurrency-for-context) below), reused with a different key
+namespace. `OrderService.CreateAsync` and `PaymentService.ProcessAsync` both
+acquire a lock keyed on `"order-idem:{key}"` / `"payment-idem:{key}"`
+*before* doing the check-then-insert, and hold it for the entire operation —
+reservation, payment, everything. A concurrent duplicate request simply
+queues behind the lock instead of racing; by the time it acquires the lock,
+the winner has already committed, so its own "does this exist?" check finds
+the row and returns the replay. The `DbUpdateException` catch around each
+`SaveChangesAsync` still exists as a second line of defense (harmless on
+InMemory since it never fires there, but a real backstop against the unique
+constraint on a production database), rather than removed — belt-and-suspenders
+costs nothing here.
+
+**What neither the lock nor a unique index protects against:** reusing the
+same key with a *different* payload (different items, different amount).
+Right now that would silently return the *first* request's result, ignoring
+the second payload entirely — there's no check that the replayed request
 matches what was stored. A stricter implementation would hash the request
 body alongside the key and reject a mismatch with `422` instead of silently
 serving the old result.
@@ -69,20 +83,15 @@ sees what looks like a transient failure and retries the same `POST
 /api/inventory/{productId}/reserve` — automatically, with no visibility
 into whether the first attempt actually landed.
 
-**What happens today:** `InventoryService.ReserveAsync` has no way to tell
-"this is a retry of a reservation I already made" from "this is a genuinely
-new reservation request" — it unconditionally debits `AvailableQuantity`
-and inserts a new `InventoryReservation` row every time it's called
-([InventoryService.cs:52-83](../src/Genasys.Api/Services/InventoryService.cs)).
-A retried reserve call double-reserves: two `Active` reservations for the
-same `(productId, orderId)`, twice the stock debited for one order.
-Contrast with `ReleaseAsync`, which already looks up a specific reservation
-row by `(productId, orderId, Status == Active)` before acting on it — the
-same lookup-before-act shape would close this gap on `ReserveAsync` too
-(check for an existing `Active` reservation for this `(productId, orderId)`
-pair first, return it unchanged if found, only create a new row otherwise).
-Not yet implemented — flagged in the completion status as a known,
-documented gap rather than an unknown one.
+**The fix:** `InventoryService.ReserveAsync` now checks for an existing
+`Active` reservation for this exact `(productId, orderId)` pair *before*
+debiting anything ([InventoryService.cs:69-86](../src/Genasys.Api/Services/InventoryService.cs)) —
+the same lookup-before-act shape `ReleaseAsync` already used. If found with
+a matching quantity, it's a retry of a reservation that already landed:
+return the current state unchanged, no second debit. If found with a
+*different* quantity, that's a genuine conflict (not a clean retry — the
+caller is asking for something different under the same order), rejected
+with `409` rather than silently overwritten.
 
 **Why the retry exists at all despite the risk:** it's not free lunch, it's
 a genuine tradeoff. Without retries, any single dropped packet between two
@@ -91,8 +100,7 @@ in-process "services" (loopback though the hop is) turns into a hard
 unavailable" as a scenario to handle gracefully, and blind failure on the
 first transient blip is arguably worse UX than a bounded retry. The right
 long-term fix isn't removing the retry, it's making the retried operation
-safe to repeat (the dedup check above) rather than just tolerant of
-failure.
+safe to repeat (the dedup check above), which is what closes the gap here.
 
 **Note:** `PaymentApiClient.ProcessAsync` doesn't have this problem *for
 its own retries*, because `OrderService` already passes an
@@ -167,15 +175,40 @@ Two independent guards, defending against two different races:
   `DbUpdateConcurrencyException`, mapped by `GlobalExceptionHandler` to a
   clean `409`.
 
+**A subtler bug the lock alone didn't catch:** writing the integration test
+for the idempotency race (above) surfaced a real concurrency bug that had
+nothing to do with idempotency at all. `InventoryService.GetByProductIdAsync`
+— called by `OrderService.CreateAsync`'s pre-reservation availability check,
+*before* the keyed lock is acquired — used a tracked EF Core query. That
+attaches a snapshot of `InventoryItem` to the request's `DbContext` early.
+When `ReserveAsync` later queried the same entity *inside* the lock, EF
+Core's identity map returned that same already-tracked (and by then stale)
+instance instead of re-reading the store — silently defeating the lock's
+entire purpose of guaranteeing a fresh read inside the critical section.
+The same issue existed in `ConsumeReservationsAsync`, whichever call
+happened to touch a given `InventoryItem` second within one request would
+read a cached snapshot rather than the latest committed state. Fixed by
+making `GetByProductIdAsync`/`ListAsync` use `.AsNoTracking()` (they're
+read-only, so nothing should be tracking them in the first place) and by
+having every lock-protected mutation (`ReserveAsync`, `ReleaseAsync`,
+`ConsumeReservationsAsync`) explicitly `ReloadAsync()` the entity after
+loading it, so a read inside a critical section is always a real read,
+never a cached one — regardless of what else touched that entity earlier
+in the same `DbContext`'s lifetime. This is the kind of bug that's
+essentially undetectable by code review alone; it only reproduces under
+genuine concurrency across separate `DbContext` instances, which is exactly
+why the concurrent-idempotency integration test (not a unit test against a
+single shared context) is what caught it.
+
 ## Summary — what's guaranteed today vs. not
 
 | Guarantee | Status |
 |---|---|
-| Retried order creation doesn't duplicate the order | ✅ unique `IdempotencyKey` index + replay lookup |
-| Retried payment doesn't double-charge | ✅ unique `IdempotencyKey` index + replay lookup |
-| Concurrent identical idempotency-key requests can't both create a row | ✅ (DB constraint) but surfaces as `500`, not a clean replay, for the loser |
+| Retried order creation doesn't duplicate the order | ✅ `KeyedLockProvider` (`order-idem:{key}`) + replay lookup — tested under real concurrency |
+| Retried payment doesn't double-charge | ✅ `KeyedLockProvider` (`payment-idem:{key}`) + replay lookup |
+| Concurrent identical idempotency-key requests can't both create a row | ✅ the lock, not the unique index — EF Core's InMemory provider doesn't enforce unique indexes at all (verified) |
 | Reused idempotency key with a *different* payload is rejected | ❌ not implemented — silently serves the original result |
-| Retried inventory reservation doesn't double-reserve | ❌ known gap — no dedup check on `ReserveAsync` |
+| Retried inventory reservation doesn't double-reserve | ✅ fixed — `ReserveAsync` checks for an existing `Active` reservation on `(productId, orderId)` first |
 | Client cancellation during compensation doesn't strand held inventory | ✅ fixed — compensation runs on `CancellationToken.None` |
-| Two orders can't oversell the same product | ✅ `KeyedLockProvider` + tested |
-| Concurrent writes to the same `Order`/`InventoryItem` are detected | ✅ `RowVersion`, auto-bumped, mapped to `409` |
+| Two orders can't oversell the same product | ✅ `KeyedLockProvider` + tested, including via a real HTTP-level concurrency test |
+| Concurrent writes to the same `Order`/`InventoryItem` are detected | ✅ `RowVersion`, auto-bumped, mapped to `409` — but only once reads inside a lock are guaranteed fresh (`AsNoTracking`/`ReloadAsync`, see above) |

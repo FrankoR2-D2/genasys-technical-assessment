@@ -8,6 +8,8 @@ builder
     .ConfigureDatabase()
     .ConfigureCaching()
     .ConfigureExceptionHandling()
+    .ConfigureHealthChecks()
+    .ConfigureLogging()
     .ConfigureApplicationServices()
     .ConfigureHttpClients()
     .ConfigureAuthentication()
@@ -19,9 +21,11 @@ await app.WithSeededDatabaseAsync();
 
 app
     .WithErrorHandling()
+    .WithCorrelationId()
     .WithSwaggerDocs()
     .WithSecurityPipeline()
-    .WithEndpoints();
+    .WithEndpoints()
+    .WithHealthChecks();
 
 app.Run();
 

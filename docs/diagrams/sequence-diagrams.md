@@ -195,9 +195,12 @@ sequenceDiagram
     OC-->>Client: 201 Created (original order, not a duplicate)
 ```
 
-This is why `IdempotencyKey` needed a **unique** index (fixed alongside this
-documentation pass) rather than a plain one — without it, two concurrent
-requests with the same key could both pass the `SingleOrDefaultAsync` check
-before either had saved, and both create an order. See
+Without protection, two concurrent requests carrying the same key could
+both pass the `SingleOrDefaultAsync` check above before either had saved,
+and both create an order. `CreateAsync` guards against this by acquiring a
+`KeyedLockProvider` lock scoped to the idempotency key *before* running this
+whole sequence — not shown in the diagram above for clarity, since it wraps
+the entire operation rather than a single step. See
 [resilience-and-consistency.md](../resilience-and-consistency.md#idempotency)
-for the full writeup.
+for the full writeup, including why a unique database index alone
+turned out not to be enough here.

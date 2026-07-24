@@ -7,7 +7,11 @@ FluentValidation, and typed `HttpClient` + Polly for inter-service calls.
 Full design plan — data model, order-creation flow, sequence diagrams, error
 handling, architecture decisions, round-1 completion status — lives at
 [`docs/plan/order-processing-service-plan.md`](docs/plan/order-processing-service-plan.md)
-([PDF version](docs/plan/order-processing-service-plan.pdf)).
+([PDF version](docs/plan/order-processing-service-plan.pdf)). Deeper
+documentation — architecture & patterns, UML/sequence/flowchart diagrams,
+auth implementation, and a use-case writeup of idempotency/retries/
+cancellation-safe compensation — is indexed at
+[`docs/README.md`](docs/README.md).
 
 ## Run it
 
@@ -73,13 +77,18 @@ released, rather than silently disappearing.
 dotnet test
 ```
 
-18 tests: `OrderServiceTests` and `InventoryServiceTests` exercise the order
+31 tests: `OrderServiceTests` and `InventoryServiceTests` exercise the order
 flow's business logic directly (happy path, insufficient inventory, payment
-decline, upstream service unavailable, idempotent retry, invalid status
-transitions, and a concurrency test proving two simultaneous reservations for
-the same product can't oversell). `Integration/*` spins up the real HTTP
-pipeline via `WebApplicationFactory` to check auth, role-based authorization,
-validation, and CRUD lifecycle end to end.
+decline, upstream service unavailable, cancellation-safe compensation,
+idempotent retry, invalid status transitions, and a concurrency test proving
+two simultaneous reservations for the same product can't oversell).
+`ConcurrencyTests` proves the `RowVersion` optimistic-concurrency mechanism
+itself. `Integration/*` spins up the real HTTP pipeline via
+`WebApplicationFactory` to check auth, role-based authorization, validation,
+CRUD lifecycle, a genuine concurrent idempotency-key race, soft-delete
+interaction with historical orders, and pagination edge cases. See
+[`docs/testing.md`](docs/testing.md) for the full breakdown, including two
+real concurrency bugs the test suite itself found and fixed.
 
 ## What's here vs. what's deferred
 
