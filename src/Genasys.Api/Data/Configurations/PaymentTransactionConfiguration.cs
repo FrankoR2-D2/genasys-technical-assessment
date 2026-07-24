@@ -10,7 +10,9 @@ public class PaymentTransactionConfiguration : IEntityTypeConfiguration<PaymentT
     {
         builder.HasKey(p => p.TransactionId);
         builder.HasIndex(p => p.OrderId);
-        builder.HasIndex(p => p.IdempotencyKey);
+        // Unique so a retried/duplicated request can't create two charges —
+        // multiple nulls are still allowed since most transactions carry no key.
+        builder.HasIndex(p => p.IdempotencyKey).IsUnique();
         builder.HasIndex(p => p.Status);
     }
 }

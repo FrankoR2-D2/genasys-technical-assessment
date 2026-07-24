@@ -43,11 +43,11 @@ public class ProductService(AppDbContext db, IMemoryCache cache, ILogger<Product
 
         var totalCount = await query.CountAsync(cancellationToken);
         var products = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip(request.EffectiveSkip)
+            .Take(request.EffectiveTake)
             .ToListAsync(cancellationToken);
 
-        return PagedResult<ProductResponse>.Create(products.Select(ToResponse).ToList(), request.Page, request.PageSize, totalCount);
+        return PagedResult<ProductResponse>.Create(products.Select(ToResponse).ToList(), request.EffectivePage, request.EffectiveTake, totalCount);
     }
 
     public async Task<ProductResponse> GetByIdAsync(string productId, CancellationToken cancellationToken)

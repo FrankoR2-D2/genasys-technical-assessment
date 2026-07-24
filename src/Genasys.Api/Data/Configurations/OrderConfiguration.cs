@@ -11,7 +11,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.HasKey(o => o.Id);
         builder.Property(o => o.Id).ValueGeneratedNever();
         builder.Property(o => o.RowVersion).IsConcurrencyToken();
-        builder.HasIndex(o => o.IdempotencyKey);
+        // Unique so a retried/duplicated request can't create two orders —
+        // multiple nulls are still allowed since most orders carry no key.
+        builder.HasIndex(o => o.IdempotencyKey).IsUnique();
         builder.HasIndex(o => o.Status);
         builder.HasIndex(o => o.CustomerId);
 

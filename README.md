@@ -5,8 +5,9 @@ assessment. ASP.NET Core Web API (.NET 8) with EF Core InMemory, JWT auth,
 FluentValidation, and typed `HttpClient` + Polly for inter-service calls.
 
 Full design plan — data model, order-creation flow, sequence diagrams, error
-handling, architecture decisions — lives at
-[`docs/plan/order-processing-service-plan.md`](docs/plan/order-processing-service-plan.md).
+handling, architecture decisions, round-1 completion status — lives at
+[`docs/plan/order-processing-service-plan.md`](docs/plan/order-processing-service-plan.md)
+([PDF version](docs/plan/order-processing-service-plan.pdf)).
 
 ## Run it
 

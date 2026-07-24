@@ -42,11 +42,11 @@ public class OrderService(
 
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip(request.EffectiveSkip)
+            .Take(request.EffectiveTake)
             .ToListAsync(cancellationToken);
 
-        return PagedResult<OrderResponse>.Create(orders.Select(ToResponse).ToList(), request.Page, request.PageSize, totalCount);
+        return PagedResult<OrderResponse>.Create(orders.Select(ToResponse).ToList(), request.EffectivePage, request.EffectiveTake, totalCount);
     }
 
     public async Task<OrderResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken)
@@ -135,13 +135,17 @@ public class OrderService(
         }
         catch (DomainException)
         {
-            await ReleaseAllAsync(orderId, reserved, cancellationToken);
+            // Compensation must run to completion even if the inbound
+            // request was itself the thing that got cancelled — releasing
+            // held stock is not optional just because nobody's waiting
+            // for the response anymore.
+            await ReleaseAllAsync(orderId, reserved, CancellationToken.None);
             throw;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Unexpected failure reserving inventory for order {OrderId}", orderId);
-            await ReleaseAllAsync(orderId, reserved, cancellationToken);
+            await ReleaseAllAsync(orderId, reserved, CancellationToken.None);
             throw new UpstreamServiceUnavailableException("Inventory service is unavailable.");
         }
 
@@ -190,8 +194,13 @@ public class OrderService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Payment service unavailable for order {OrderId}", orderId);
-            await ReleaseAllAsync(orderId, items, cancellationToken);
-            await TransitionAsync(order, OrderStatus.Cancelled, "Payment service unavailable.", cancellationToken);
+            // Same reasoning as the reservation catch above: use an
+            // unlinked token so a cancelled/timed-out request still leaves
+            // the order Cancelled and the stock released, instead of
+            // throwing again mid-cleanup and stranding a Pending order
+            // with inventory still held.
+            await ReleaseAllAsync(orderId, items, CancellationToken.None);
+            await TransitionAsync(order, OrderStatus.Cancelled, "Payment service unavailable.", CancellationToken.None);
             throw new UpstreamServiceUnavailableException($"Payment service is unavailable. Order '{orderId}' was cancelled.");
         }
 
@@ -202,8 +211,8 @@ public class OrderService(
             return await GetByIdAsync(orderId, cancellationToken);
         }
 
-        await ReleaseAllAsync(orderId, items, cancellationToken);
-        await TransitionAsync(order, OrderStatus.Cancelled, "Payment declined.", cancellationToken);
+        await ReleaseAllAsync(orderId, items, CancellationToken.None);
+        await TransitionAsync(order, OrderStatus.Cancelled, "Payment declined.", CancellationToken.None);
         throw new PaymentFailedException($"Payment was declined for order '{orderId}'.");
     }
 

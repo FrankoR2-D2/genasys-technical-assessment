@@ -30,11 +30,11 @@ public class CustomerService(AppDbContext db, ILogger<CustomerService> logger) :
 
         var totalCount = await query.CountAsync(cancellationToken);
         var customers = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip(request.EffectiveSkip)
+            .Take(request.EffectiveTake)
             .ToListAsync(cancellationToken);
 
-        return PagedResult<CustomerResponse>.Create(customers.Select(ToResponse).ToList(), request.Page, request.PageSize, totalCount);
+        return PagedResult<CustomerResponse>.Create(customers.Select(ToResponse).ToList(), request.EffectivePage, request.EffectiveTake, totalCount);
     }
 
     public async Task<CustomerResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken)

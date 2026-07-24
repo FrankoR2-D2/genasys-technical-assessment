@@ -1,7 +1,12 @@
 using System.Net.Http.Json;
+using Genasys.Api.Clients;
 using Genasys.Api.Contracts.Auth;
+using Genasys.Api.Tests.Fakes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Genasys.Api.Tests.Integration;
 
@@ -13,6 +18,22 @@ public class ApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("Database:Name", Guid.NewGuid().ToString());
+
+        // OrderService's typed HttpClients are configured with a real
+        // loopback base address (Program.cs) — there's no socket listening
+        // on it inside WebApplicationFactory's in-memory TestServer. Swap
+        // them for the same in-process adapters the unit tests use, so a
+        // request through this factory's HttpClient still exercises the
+        // real OrdersController/ValidationFilter/GlobalExceptionHandler
+        // pipeline end to end, just without a real network hop underneath.
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IInventoryApiClient>();
+            services.AddScoped<IInventoryApiClient, InProcessInventoryApiClient>();
+
+            services.RemoveAll<IPaymentApiClient>();
+            services.AddScoped<IPaymentApiClient, InProcessPaymentApiClient>();
+        });
     }
 
     public async Task<string> GetTokenAsync(HttpClient client, string username, string password)

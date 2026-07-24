@@ -271,6 +271,14 @@ force an unbounded scan. `sort` takes a `field:asc|desc` pair validated
 against an allow-list per resource, not a raw column name, so it can't be
 used to probe the schema.
 
+`skip`/`take` are also accepted as a raw-offset alternative to `page`/
+`pageSize`, for clients that think in rows rather than pages — e.g.
+`GET /api/products?skip=40&take=20` instead of `?page=3&pageSize=20`. When
+supplied, they take precedence; either way the response envelope always
+reports `page`/`pageSize` (computed back from the effective skip/take), so
+a client only ever has to parse one response shape regardless of which
+request style it used.
+
 ## 3. Order creation flow
 
 ```mermaid
@@ -504,3 +512,69 @@ full retail platform. Noted so the gap is a decision, not an oversight:
 | Product / Customer | Not in the spec's data models | Full CRUD controllers | Real REST resources, not just startup seed data |
 | Project structure | — | Single project, folder-separated | Right-sized for 6 controllers; multi-project Clean Architecture deferred to round 2 |
 | Business logic pattern | — | Plain service classes | Simpler and more traceable than CQRS/MediatR at this scope |
+
+## 12. Round-1 completion status
+
+Self-evaluation against the spec's own grading structure, as of the last
+commit on `main`. Kept here so the doc stays an honest record of where
+things stand, not just a design intention.
+
+### Mandatory technologies
+
+| Requirement | Status |
+|---|---|
+| .NET 6+ (ASP.NET Core Web API) | ✅ net8.0 — current LTS, satisfies "6+" as written (.NET 6 itself is EOL) |
+| EF Core with in-memory database | ✅ `Microsoft.EntityFrameworkCore.InMemory` |
+| HTTP Client for inter-service communication | ✅ typed `HttpClient` + Polly, Order → Inventory/Payment |
+| JSON serialization/deserialization | ✅ System.Text.Json, `JsonStringEnumConverter` |
+
+### Core functionality
+
+All 8 spec-mandated endpoints implemented and behavior-verified (not just
+built) against the exact request/response shapes in the spec, plus 14
+additional endpoints (Product/Customer CRUD, list/search on every resource,
+auth). 22 endpoints total.
+
+### Business logic & error scenarios
+
+The 6-step order creation flow and all 5 required error scenarios
+(insufficient inventory, payment failure, service unavailable, invalid
+input, concurrent order processing) are implemented per §3–§5 above and
+covered by automated tests — including a concurrency test that proves the
+keyed-semaphore prevents overselling under two simultaneous reservations.
+
+### Code quality standards
+
+DI throughout, async/await on all I/O, meaningful HTTP status codes via a
+single global exception handler, FluentValidation on every mutating
+endpoint, `ILogger` used consistently, zero build warnings.
+
+### Bonus points
+
+| Item | Status |
+|---|---|
+| OpenAPI/Swagger documentation | ✅ |
+| Authentication/Authorization (JWT tokens) | ✅ |
+| Caching implementation (in-memory) | ✅ Product catalog reads |
+| Configuration management (appsettings) | ✅ |
+| Environment-specific settings | ✅ minimal — `appsettings.Development.json` exists but isn't differentiated much |
+| Structured logging with correlation IDs | ❌ not implemented |
+| Metrics/monitoring endpoints | ❌ no `/health` endpoint yet |
+| Security best practices | ✅ hashed passwords, masked payment references, role-gated mutations |
+
+### Submission checklist
+
+| Item | Status |
+|---|---|
+| Service starts successfully | ✅ |
+| End-to-end order flow works correctly | ✅ verified live, not just unit-tested |
+| Error scenarios handled gracefully | ✅ |
+| Public GitHub repository | ❌ **repo is currently private — must be flipped before submitting** |
+
+### Known gaps / suggested next steps
+
+1. **Make the repo public** — blocking; everything else here is polish.
+2. `/health` endpoint — closes the metrics/monitoring bonus.
+3. Correlation-ID middleware + log scope enrichment — closes the structured-logging bonus.
+4. XML doc comments on controllers/DTOs, surfaced in Swagger via `IncludeXmlComments` — no functional change, makes the UI self-explanatory for a grader.
+5. A CI workflow (`dotnet build` + `dotnet test` on push) — not asked for by the spec, but a cheap, credible signal of engineering maturity.

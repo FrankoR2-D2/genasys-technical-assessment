@@ -35,11 +35,11 @@ public class InventoryService(AppDbContext db, KeyedLockProvider lockProvider, I
 
         var totalCount = await query.CountAsync(cancellationToken);
         var items = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip(request.EffectiveSkip)
+            .Take(request.EffectiveTake)
             .ToListAsync(cancellationToken);
 
-        return PagedResult<InventoryItemResponse>.Create(items.Select(ToResponse).ToList(), request.Page, request.PageSize, totalCount);
+        return PagedResult<InventoryItemResponse>.Create(items.Select(ToResponse).ToList(), request.EffectivePage, request.EffectiveTake, totalCount);
     }
 
     public async Task<InventoryItemResponse> GetByProductIdAsync(string productId, CancellationToken cancellationToken)

@@ -34,11 +34,11 @@ public class PaymentService(AppDbContext db, ILogger<PaymentService> logger) : I
 
         var totalCount = await query.CountAsync(cancellationToken);
         var transactions = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .Skip(request.EffectiveSkip)
+            .Take(request.EffectiveTake)
             .ToListAsync(cancellationToken);
 
-        return PagedResult<PaymentTransactionResponse>.Create(transactions.Select(ToResponse).ToList(), request.Page, request.PageSize, totalCount);
+        return PagedResult<PaymentTransactionResponse>.Create(transactions.Select(ToResponse).ToList(), request.EffectivePage, request.EffectiveTake, totalCount);
     }
 
     public async Task<PaymentTransactionResponse> GetByIdAsync(Guid transactionId, CancellationToken cancellationToken)
