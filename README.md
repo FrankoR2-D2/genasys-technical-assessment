@@ -6,8 +6,8 @@ FluentValidation, and typed `HttpClient` + Polly for inter-service calls.
 
 Full design plan — data model, order-creation flow, sequence diagrams, error
 handling, architecture decisions, completion status — lives at
-[`docs/plan/order-processing-service-plan.md`](docs/plan/order-processing-service-plan.md)
-([PDF version](docs/plan/order-processing-service-plan.pdf)). Deeper
+[`docs/plan/order-processing-service-plan.md`](docs/plan/order-processing-service-plan.md).
+Deeper
 documentation — architecture & patterns, UML/sequence/flowchart diagrams,
 auth implementation, and a use-case writeup of idempotency/retries/
 cancellation-safe compensation — is indexed at
