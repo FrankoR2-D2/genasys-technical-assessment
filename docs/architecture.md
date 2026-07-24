@@ -8,10 +8,10 @@ patterns chosen at each seam. Diagrams referenced here live under
 
 ## Shape: single project, folder-separated
 
-Round-1 choice, deliberately not a multi-project Clean/Onion/Hexagonal
-split. Six controllers and a handful of services don't yet justify the
-project-reference ceremony a multi-project split brings — that's a round-2
-direction once the domain has grown enough to earn it.
+Deliberately not a multi-project Clean/Onion/Hexagonal split. Six
+controllers and a handful of services don't yet justify the
+project-reference ceremony a multi-project split brings — worth revisiting
+if the domain grows enough to earn it.
 
 ```
 Genasys.Api/

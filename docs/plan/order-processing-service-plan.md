@@ -1,14 +1,14 @@
 # Order Processing Service — Flow & Data Model Plan
 
-Genasys C# Developer technical assessment, round 1. Order, Inventory, and
+Genasys C# Developer technical assessment. Order, Inventory, and
 Payment controllers over ASP.NET Core, built to the spec in
 `docs/Technical Assessment_C# Developer_July 2025 (1).pdf`, with the entity
 model taken further toward something a real order system would look like.
 
-Round-1 decisions: EF Core **InMemory** provider, self-issued **JWT** (no
-Keycloak), **net8.0** target, full CRUD on Product/Customer. The
-Postgres/Keycloak/multi-tenant scaffold has been removed from the repo — that
-direction is parked for round 2.
+Key decisions: EF Core **InMemory** provider, self-issued **JWT** (no
+Keycloak), **net8.0** target, full CRUD on Product/Customer. An earlier
+Postgres/Keycloak/multi-tenant scaffold was removed from the repo in favor
+of this spec-first design.
 
 ## 1. Data models
 
@@ -144,15 +144,15 @@ of conflating them comes from). Here they're kept separate on purpose:
 | Term | Maps to | Answers |
 |---|---|---|
 | **User** | `User` entity | *Who's authenticating* — the credential holder calling the API (staff/admin) |
-| **Account** | not modeled in round 1 | *Which tenant/org a User belongs to* — this is the parked Keycloak `Tenant` concept from round 2; a User-side, multi-tenancy concern |
+| **Account** | not modeled here | *Which tenant/org a User belongs to* — a separate multi-tenancy concern (an earlier Keycloak-based scaffold explored this and was removed in favor of the spec-first design) |
 | **Customer** | `Customer` entity | *Who the order is for* — a commerce entity with addresses and order history, unrelated to logging in |
 
 Our `User`s act on behalf of many `Customer`s (a support agent manages
 orders for hundreds of customers), so collapsing `User`/`Account` into
 `Customer` would force every customer to carry login credentials they don't
-need. If round 2 adds customer self-service login, the join point is a
-nullable `CustomerId` on `User` — a link between two still-distinct
-entities, not a merge into one "Account" table.
+need. Customer self-service login is a clean future extension — the join
+point would be a nullable `CustomerId` on `User`, a link between two
+still-distinct entities, not a merge into one "Account" table.
 
 ### Why a reservation ledger instead of a counter
 
@@ -448,10 +448,10 @@ entire setup story.
 
 ## 9. Architecture & patterns
 
-Round-1 choice: a **single project, folder-separated**, not a multi-project
-Clean Architecture split — appropriate for six controllers; revisit the
-multi-project split in round 2 once the domain has grown enough to justify
-the extra project-reference ceremony.
+Choice: a **single project, folder-separated**, not a multi-project Clean
+Architecture split — appropriate for six controllers; a multi-project split
+would be worth revisiting if the domain grows enough to justify the extra
+project-reference ceremony.
 
 ```
 Genasys.Api/
@@ -488,10 +488,10 @@ not the concrete class alongside it.
 | Inter-service calls | Typed `HttpClient` per resource via `AddHttpClient<T>`, with a **Polly retry policy** | Satisfies the spec's explicit "HTTP Client for inter-service communication" requirement; the retry policy is also where the "service unavailable" error scenario gets real behavior instead of an immediate failure |
 | Testing | `xUnit` + `WebApplicationFactory<Program>` integration tests (happy path + every error scenario from §5) + unit tests against a fresh EF InMemory database per test | "Testing strategy" is a direct line item in the grading criteria |
 
-## 10. Deferred to a later round
+## 10. Out of scope
 
-Kept out of round 1 to stay inside assessment scope rather than building a
-full retail platform. Noted so the gap is a decision, not an oversight:
+Kept out to stay inside assessment scope rather than building a full retail
+platform. Noted so the gap is a decision, not an oversight:
 
 - Multi-location inventory (`Warehouse`/`StockLocation`)
 - Discounts/coupon codes, tax calculation
@@ -500,20 +500,21 @@ full retail platform. Noted so the gap is a decision, not an oversight:
 - Supplier/purchase-order restocking flow
 - Outbox/webhook events for downstream integration
 - Multi-currency
-- The Postgres/Keycloak/multi-tenant IAM layer (round 2, per earlier direction)
+- A Postgres/Keycloak/multi-tenant IAM layer — an earlier scaffold explored
+  this direction and was removed in favor of the spec-first design above
 
-## 11. Round-1 decisions (confirmed)
+## 11. Key decisions (confirmed)
 
 | Decision | Spec says | Chosen | Why |
 |---|---|---|---|
 | Database | Mandatory: EF Core (or similar) with in-memory database | EF Core **InMemory** provider | Matches the mandatory tech literally; `dotnet run` needs zero infra |
-| Auth | Bonus: JWT tokens | Self-issued JWT (`JwtBearer` + `/api/auth/token`) | Covers the bonus without a Keycloak dependency this round |
+| Auth | Bonus: JWT tokens | Self-issued JWT (`JwtBearer` + `/api/auth/token`) | Covers the bonus without a Keycloak dependency |
 | Target framework | .NET 6+ | **net8.0** (LTS) | Widest SDK availability on a grader's machine |
 | Product / Customer | Not in the spec's data models | Full CRUD controllers | Real REST resources, not just startup seed data |
-| Project structure | — | Single project, folder-separated | Right-sized for 6 controllers; multi-project Clean Architecture deferred to round 2 |
+| Project structure | — | Single project, folder-separated | Right-sized for 6 controllers |
 | Business logic pattern | — | Plain service classes | Simpler and more traceable than CQRS/MediatR at this scope |
 
-## 12. Round-1 completion status
+## 12. Completion status
 
 Self-evaluation against the spec's own grading structure, as of the last
 commit on `main`. Kept here so the doc stays an honest record of where
@@ -571,11 +572,11 @@ endpoint, `ILogger` used consistently, zero build warnings.
 | Error scenarios handled gracefully | ✅ |
 | Public GitHub repository | ✅ |
 
-### Post-round-1 hardening (2026-07-24)
+### Post-review hardening (2026-07-24)
 
-Applied after an external review of the round-1 build flagged real gaps —
-see [../resilience-and-consistency.md](../resilience-and-consistency.md)
-and [../testing.md](../testing.md) for the full writeups:
+Applied after an external review flagged real gaps — see
+[../resilience-and-consistency.md](../resilience-and-consistency.md) and
+[../testing.md](../testing.md) for the full writeups:
 
 - `/health` endpoint, XML doc comments surfaced in Swagger via
   `IncludeXmlComments`, and a CI workflow (`dotnet build` + `dotnet test`

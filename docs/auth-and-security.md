@@ -73,8 +73,8 @@ call carries the *placing customer's* token, not a separate admin identity
 call these endpoints standalone, creating a reservation or a payment record
 without going through `OrderService`'s validation. That's flagged as a known
 gap, not an oversight — closing it properly needs a distinct
-service-to-service credential separate from end-user tokens, which is more
-naturally a round-2 change than a patch to this round's auth model.
+service-to-service credential separate from end-user tokens, which is a
+larger auth-model change than a targeted patch here.
 
 ## User vs Customer
 

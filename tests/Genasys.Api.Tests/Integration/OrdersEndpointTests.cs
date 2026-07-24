@@ -137,10 +137,11 @@ public class OrdersEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
             return await client.SendAsync(message);
         }
 
-        // Two requests racing on the same key — the unique IdempotencyKey
-        // index means only one can win the insert; the loser must recover
-        // cleanly (see OrderService.CreateAsync's DbUpdateException catch)
-        // rather than surface as an unhandled 500.
+        // Two requests racing on the same key — OrderService.CreateAsync
+        // serializes them behind a keyed lock (EF Core's InMemory provider
+        // doesn't enforce the unique IdempotencyKey index), so the loser
+        // waits and then replays the winner's order rather than surfacing
+        // as an unhandled 500.
         var responses = await Task.WhenAll(Send(), Send());
 
         foreach (var response in responses)
